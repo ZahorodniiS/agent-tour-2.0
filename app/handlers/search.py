@@ -26,7 +26,9 @@ def city_keyboard() -> InlineKeyboardMarkup:
             btns.append([InlineKeyboardButton(text=name, callback_data=f"from_city:{fid}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
-@router.message(commands={"start"})
+from aiogram.filters import CommandStart
+
+@router.message(CommandStart())
 async def start(message: Message):
     example = (
         "Вітаю, я ваш віртуальний турагент!\n"
