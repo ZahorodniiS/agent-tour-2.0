@@ -4,8 +4,9 @@ from aiogram.types import Message, FSInputFile
 from app.config import LOG_FILE
 
 router = Router()
+from aiogram.filters import Command
 
-@router.message(commands={"logs"})
+@router.message(Command("logs"))
 async def cmd_logs(message: Message):
     try:
         await message.answer_document(FSInputFile(LOG_FILE), caption="Логи бота")
