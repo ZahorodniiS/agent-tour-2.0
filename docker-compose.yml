@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   travel-bot:
     container_name: travel-bot-ittour
@@ -15,3 +13,4 @@ services:
       - .:/app
 
     command: python -m app.bot --polling
+
