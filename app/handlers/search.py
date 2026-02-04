@@ -1,7 +1,9 @@
-import logging, json, os
+import logging, json, os, re
 from datetime import datetime, timedelta
+
 from aiogram import Router
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import CommandStart
 
 from app import config
 from app.config import DEFAULTS, DATA_DIR
@@ -15,6 +17,94 @@ from app.errors import humanize_error
 
 router = Router()
 
+_UA_MONTHS = {
+    # родовий (найчастіше у фразах "25 квітня")
+    "січня": 1, "лютого": 2, "березня": 3, "квітня": 4, "травня": 5, "червня": 6,
+    "липня": 7, "серпня": 8, "вересня": 9, "жовтня": 10, "листопада": 11, "грудня": 12,
+    # називний (про всяк випадок)
+    "січень": 1, "лютий": 2, "березень": 3, "квітень": 4, "травень": 5, "червень": 6,
+    "липень": 7, "серпень": 8, "вересень": 9, "жовтень": 10, "листопад": 11, "грудень": 12,
+}
+
+def normalize_date_ddmmyy(date_str: str, now: datetime | None = None) -> str:
+    """
+    Приводить дату до формату DD.MM.YY
+
+    Підтримує:
+      - "25.04" / "25.4" -> додає рік (поточний або наступний, щоб не було в минулому)
+      - "25,04" / "25,4" -> те саме
+      - "25/04", "25-04" -> те саме
+      - "25.04.26" -> ok
+      - "25.04.2026" -> "25.04.26"
+      - "25 квітня" / "25 квітня 2026" -> конвертація в DD.MM.YY
+    """
+    if not date_str:
+        raise ValueError("date_str is empty")
+
+    now = now or datetime.now()
+
+    s = str(date_str).strip().lower()
+    s = re.sub(r"\s+", " ", s)
+
+    # 1) Спроба розпізнати "25 квітня" або "25 квітня 2026"
+    m = re.fullmatch(r"(\d{1,2})\s+([а-яіїєґ]+)(?:\s+(\d{2,4}))?", s)
+    if m:
+        dd = int(m.group(1))
+        month_name = m.group(2)
+        mm = _UA_MONTHS.get(month_name)
+        if not mm:
+            raise ValueError(f"Unknown month name: {month_name}")
+
+        y_raw = m.group(3)
+        if y_raw:
+            yyyy = int(y_raw)
+            if yyyy < 100:
+                yyyy = 2000 + yyyy
+        else:
+            # Якщо рік не вказаний — беремо поточний або наступний, щоб дата була не в минулому
+            yyyy = now.year
+            candidate = datetime(yyyy, mm, dd)
+            if candidate.date() < now.date():
+                yyyy += 1
+
+        yy = yyyy % 100
+        return f"{dd:02d}.{mm:02d}.{yy:02d}"
+
+    # 2) Нормалізація роздільників: кома/слеш/дефіс -> крапка
+    s2 = s.replace(",", ".").replace("/", ".").replace("-", ".")
+    s2 = re.sub(r"\s+", "", s2)
+
+    # 2.1) DD.MM
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})", s2)
+    if m:
+        dd = int(m.group(1))
+        mm = int(m.group(2))
+        yyyy = now.year
+        candidate = datetime(yyyy, mm, dd)
+        if candidate.date() < now.date():
+            yyyy += 1
+        yy = yyyy % 100
+        return f"{dd:02d}.{mm:02d}.{yy:02d}"
+
+    # 2.2) DD.MM.YY
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{2})", s2)
+    if m:
+        dd = int(m.group(1))
+        mm = int(m.group(2))
+        yy = int(m.group(3))
+        return f"{dd:02d}.{mm:02d}.{yy:02d}"
+
+    # 2.3) DD.MM.YYYY
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", s2)
+    if m:
+        dd = int(m.group(1))
+        mm = int(m.group(2))
+        yyyy = int(m.group(3))
+        yy = yyyy % 100
+        return f"{dd:02d}.{mm:02d}.{yy:02d}"
+
+    raise ValueError(f"Unsupported date format: {date_str}")
+
 def city_keyboard() -> InlineKeyboardMarkup:
     with open(os.path.join(DATA_DIR, "from_city_map.json"), "r", encoding="utf-8") as f:
         city_map = json.load(f)
@@ -26,14 +116,12 @@ def city_keyboard() -> InlineKeyboardMarkup:
             btns.append([InlineKeyboardButton(text=name, callback_data=f"from_city:{fid}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
-from aiogram.filters import CommandStart
-
 @router.message(CommandStart())
 async def start(message: Message):
     example = (
         "Вітаю, я ваш віртуальний турагент!\n"
         "Натисніть кнопку нижче або надішліть запит у довільній формі.\n\n"
-        "Приклад: <i>Тур до Єгипту на 2 дорослих, з 10.12.2025, бюджет 1500 дол на 7 днів</i>"
+        "Приклад: <i>Тур до Єгипту на 2 дорослих, з 10.12.2026, бюджет 1500 дол на 7 днів</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Здійснити пошук туру", callback_data="search_start")]])
     await message.answer(example, reply_markup=kb)
@@ -68,6 +156,21 @@ async def handle_text(message: Message):
     budget_from  = pick(llm.get("budget_from"), rb.get("budget_from"), cached.get("budget_from"), DEFAULTS["price_from"])
     budget_to    = pick(llm.get("budget_to"), rb.get("budget_to"), cached.get("budget_to"), DEFAULTS["price_till"])
 
+    # ✅ НОРМАЛІЗУЄМО ДАТИ (якщо вони прийшли)
+    now = datetime.now()
+    if date_from:
+        try:
+            date_from = normalize_date_ddmmyy(date_from, now=now)
+        except Exception:
+            await message.answer("Не можу розпізнати дату 🗓️ Напишіть, будь ласка, у форматі 25.04 / 25,04 / 25 квітня / 25.04.26")
+            return
+    if date_till:
+        try:
+            date_till = normalize_date_ddmmyy(date_till, now=now)
+        except Exception:
+            await message.answer("Не можу розпізнати дату 'до' 🗓️ Напишіть, будь ласка, у форматі 25.04 / 25,04 / 25 квітня / 25.04.26")
+            return
+
     state_set(message.chat.id,
               country_id=country_id, from_city_id=from_city_id, adults=adults, children=children,
               child_ages=child_ages, date_from=date_from, date_till=date_till, currency_hint=currency_hint,
@@ -80,10 +183,11 @@ async def handle_text(message: Message):
         await message.answer("Звідки виліт? Оберіть місто нижче або введіть вручну:", reply_markup=city_keyboard())
         return
 
-    today = datetime.now()
+    today = now
     if not date_from:
         date_from = (today + timedelta(days=2)).strftime('%d.%m.%y')
     if not date_till:
+        # date_from тут вже гарантовано у форматі DD.MM.YY
         df = datetime.strptime(date_from, '%d.%m.%y')
         date_till = (df + timedelta(days=12)).strftime('%d.%m.%y')
 
