@@ -225,8 +225,8 @@ async def handle_text(message: Message):
         url, params = build_search_list_query(
             country_id=country_id,
             from_city_id=from_city_id,
-            adults=int(adults),
-            children=int(children),
+            adults_i = int(adults) if adults not in (None, "") else int(DEFAULTS.get("adult_amount", 2))
+children_i = int(children) if children not in (None, "") else int(DEFAULTS.get("child_amount", 0))
             child_ages=child_ages,
             night_from=DEFAULTS["night_from"],
             night_till=DEFAULTS["night_till"],
