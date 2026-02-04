@@ -1,8 +1,8 @@
 import logging, json, os, re
 from datetime import datetime, timedelta
 
-from aiogram import Router
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Router, F
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import CommandStart
 
 from app import config
@@ -126,8 +126,30 @@ async def start(message: Message):
         "Натисніть кнопку нижче або надішліть запит у довільній формі.\n\n"
         "Приклад: <i>Тур до Єгипту на 2 дорослих, з 10.12.2026, бюджет 1500 дол на 7 днів</i>"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Здійснити пошук туру", callback_data="search_start")]])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Здійснити пошук туру", callback_data="search_start")]]
+    )
     await message.answer(example, reply_markup=kb)
+
+# ✅ ОБРОБНИК КНОПКИ "Здійснити пошук туру"
+@router.callback_query(F.data == "search_start")
+async def on_search_start(callback: CallbackQuery):
+    await callback.answer()  # прибирає "годинник" на кнопці
+    await callback.message.answer(
+        "Оберіть місто вильоту або введіть вручну:",
+        reply_markup=city_keyboard()
+    )
+
+# ✅ ОБРОБНИК ВИБОРУ МІСТА ВИЛЬОТУ
+@router.callback_query(F.data.startswith("from_city:"))
+async def on_from_city(callback: CallbackQuery):
+    await callback.answer()
+    fid = callback.data.split(":", 1)[1]
+    state_set(callback.message.chat.id, from_city_id=fid)
+    await callback.message.answer(
+        "✅ Місто вильоту збережено.\nТепер напишіть запит одним повідомленням 🙂\n\n"
+        "Наприклад: <i>Тур до Єгипту на 2 дорослих, з 10.12.2026, бюджет 1500 дол на 7 днів</i>"
+    )
 
 @router.message()
 async def handle_text(message: Message):
