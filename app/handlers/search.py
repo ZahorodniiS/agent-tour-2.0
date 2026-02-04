@@ -108,12 +108,15 @@ def normalize_date_ddmmyy(date_str: str, now: datetime | None = None) -> str:
 def city_keyboard() -> InlineKeyboardMarkup:
     with open(os.path.join(DATA_DIR, "from_city_map.json"), "r", encoding="utf-8") as f:
         city_map = json.load(f)
+
     btns = []
-    top = ["Київ", "Львів", "Варшава", "Кишинів", "Одеса"]
+    top = ["Кишинів", "Варшава", "Краків", "Ясси"]
+
     for name in top:
         fid = city_map.get(name)
         if fid:
             btns.append([InlineKeyboardButton(text=name, callback_data=f"from_city:{fid}")])
+
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
 @router.message(CommandStart())
