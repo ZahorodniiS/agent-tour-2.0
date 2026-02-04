@@ -164,16 +164,21 @@ async def handle_text(message: Message):
     llm = llm_extract(user_text, COUNTRY_MAP, CITY_MAP)
     rb = parse_user_text(user_text)
 
-    def pick(*vals):
-        for v in vals:
-            if v not in (None, "", 0):
-                return v
-        return None
+    def pick(*vals, allow_zero: bool = False):
+    for v in vals:
+        if v is None:
+            continue
+        if v == "" or v == [] or v == {}:
+            continue
+        if (v == 0) and (not allow_zero):
+            continue
+        return v
+    return None
 
     country_id   = pick(llm.get("country_id"), rb.get("country_id"), COUNTRY_MAP.get(llm.get("country_name","")), COUNTRY_MAP.get(rb.get("country_name","")), cached.get("country_id"))
     from_city_id = pick(llm.get("from_city_id"), rb.get("from_city_id"), CITY_MAP.get(llm.get("from_city_name","")), CITY_MAP.get(rb.get("from_city_name","")), cached.get("from_city_id"))
-    adults       = pick(llm.get("adults"), rb.get("adults"), cached.get("adults"), DEFAULTS["adult_amount"])
-    children     = pick(llm.get("children"), rb.get("children"), cached.get("children"), DEFAULTS["child_amount"])
+    adults   = pick(llm.get("adults"), rb.get("adults"), cached.get("adults"), DEFAULTS.get("adult_amount", 2), allow_zero=False)
+    children = pick(llm.get("children"), rb.get("children"), cached.get("children"), DEFAULTS.get("child_amount", 0), allow_zero=True)
     child_ages   = pick(llm.get("child_ages"), rb.get("child_ages"), cached.get("child_ages"))
     date_from    = pick(llm.get("date_from"), rb.get("date_from"), cached.get("date_from"))
     date_till    = pick(llm.get("date_till"), rb.get("date_till"), cached.get("date_till"))
