@@ -234,4 +234,4 @@ def offers_to_messages(data: Dict[str, Any], currency_id: int = 2) -> List[Tuple
         return 10**18
 
     messages.sort(key=msg_min_price_num)
-    return messages[:5]
+    return messages[:10]
