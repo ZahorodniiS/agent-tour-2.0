@@ -311,15 +311,23 @@ async def _run_search(message: Message, state: dict):
         await message.answer("Сервіс тимчасово недоступний. Спробуйте пізніше.")
         return
 
-    if isinstance(data, dict) and "error" in data:
-        code = data.get("code") or data.get("error", {}).get("code")
-        try:
-            code = int(code)
-        except Exception:
-            code = None
-        tip = humanize_error(code or 0)
-        await message.answer(f"Сталася помилка API ({code}). {tip}")
-        return
+   if isinstance(data, dict) and ("error_code" in data or "error" in data or "code" in data):
+    code = data.get("error_code") or data.get("code")
+    if not code and isinstance(data.get("error"), dict):
+        code = data["error"].get("error_code") or data["error"].get("code")
+    try:
+        code_int = int(code)
+    except Exception:
+        code_int = 0
+
+    tip = humanize_error(code_int, data)
+    await message.answer(f"Сталася помилка ITTour ({code_int}). {tip}")
+    return
+
+# якщо прийшла строка (HTML/текст), щоб не падати
+    if not isinstance(data, dict):
+    await message.answer("Помилка ITTour: відповідь не у форматі JSON. Перевіряю доступ/токен.")
+    return
 
     currency_id = int(params.get("currency", config.CURRENCY_DEFAULT))
     offers = offers_to_messages(data, currency_id=currency_id)
