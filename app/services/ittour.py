@@ -211,7 +211,8 @@ def request_search_list(params: Dict[str, Any]) -> Dict[str, Any]:
       error, error_desc, error_code
     """
     headers = {
-        "Authorization": f"Bearer {ITTOUR_API_TOKEN}",
+        # ✅ ВАЖЛИВО: за документацією ITTour це "Authorization: <token>" (без Bearer)
+        "Authorization": ITTOUR_API_TOKEN,
         "Accept-Language": ACCEPT_LANGUAGE,
     }
 
