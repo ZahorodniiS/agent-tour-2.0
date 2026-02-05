@@ -30,11 +30,6 @@ def _fmt_date(api_date: Optional[str]) -> str:
 
 
 def _date_sort_key(api_date: Optional[str]) -> Tuple[int, Any]:
-    """
-    Для сортування дат:
-    - валідні YYYY-MM-DD йдуть першими (0, datetime)
-    - невалідні/порожні — в кінець (1, str)
-    """
     if not api_date:
         return (1, "")
     try:
@@ -85,10 +80,6 @@ def _fmt_people(adults: Any, children: Any) -> str:
 
 
 def _offer_key(o: Dict[str, Any]) -> Tuple:
-    """
-    Ключ для дедуплікації ВАРІАНТІВ одного готелю:
-    дата + ночі + ціни
-    """
     prices = o.get("prices") or {}
     return (
         str(o.get("date_from") or ""),
@@ -98,9 +89,6 @@ def _offer_key(o: Dict[str, Any]) -> Tuple:
 
 
 def _hotel_group_key(o: Dict[str, Any]) -> Tuple:
-    """
-    Групуємо по hotel_id (найкраще), інакше по назві+регіон+країна+зірки.
-    """
     hid = o.get("hotel_id")
     if hid is not None:
         return ("hotel_id", str(hid))
@@ -148,19 +136,10 @@ def build_offer_caption(o: Dict[str, Any], currency_id: int, *, include_people: 
 
 
 def offers_to_messages(data: Dict[str, Any], currency_id: int = 2) -> List[Tuple[str, Optional[str]]]:
-    """
-    ✅ Прибирає дублікати готелів у видачі.
-    ✅ Якщо один і той самий готель є на різні дати/ціни — об’єднує в 1 повідомлення.
-    ✅ У “шапці” показує найнижчу ціну, нижче — інші варіанти.
-    ✅ Додає кількість осіб (adult_amount/child_amount) у видачу.
-    ✅ Схлопує однакові дати: лишає 1 дату з найнижчою ціною.
-    ✅ Сортує дати у списку по порядку.
-    """
     offers: List[Dict[str, Any]] = (data or {}).get("offers") or []
     if not isinstance(offers, list) or not offers:
         return []
 
-    # 1) Групуємо по готелю
     grouped: DefaultDict[Tuple, List[Dict[str, Any]]] = defaultdict(list)
     for o in offers:
         if isinstance(o, dict):
@@ -169,7 +148,7 @@ def offers_to_messages(data: Dict[str, Any], currency_id: int = 2) -> List[Tuple
     messages: List[Tuple[str, Optional[str]]] = []
 
     for group in grouped.values():
-        # 2) Дедуп варіантів усередині готелю (повні дублікати)
+        # 1) прибираємо повні дублікати
         uniq: List[Dict[str, Any]] = []
         seen = set()
         for o in group:
@@ -182,35 +161,40 @@ def offers_to_messages(data: Dict[str, Any], currency_id: int = 2) -> List[Tuple
         if not uniq:
             continue
 
-        # 3) Схлопуємо однакові дати: залишаємо найнижчу ціну на дату
-        best_by_date: Dict[str, Dict[str, Any]] = {}
+        # 2) схлопуємо лише (date_from + nights): залишаємо найнижчу ціну
+        best_by_date_nights: Dict[Tuple[str, str], Dict[str, Any]] = {}
         for o in uniq:
             d = str(o.get("date_from") or "")
-            cur_best = best_by_date.get(d)
+            nights = str(o.get("duration") or o.get("hnight") or "")
+            key = (d, nights)
+
+            cur_best = best_by_date_nights.get(key)
 
             v_new, _ = _pick_price(o.get("prices") or {}, currency_id)
             v_best = None
             if cur_best is not None:
                 v_best, _ = _pick_price(cur_best.get("prices") or {}, currency_id)
 
-            # якщо поточний кращий (нижча ціна), або "кращого" ще нема
-            if cur_best is None:
-                best_by_date[d] = o
-            else:
-                # None трактуємо як "дуже дорого"
-                new_num = v_new if v_new is not None else 10**18
-                best_num = v_best if v_best is not None else 10**18
-                if new_num < best_num:
-                    best_by_date[d] = o
+            new_num = v_new if v_new is not None else 10**18
+            best_num = v_best if v_best is not None else 10**18
 
-        uniq2 = list(best_by_date.values())
+            if cur_best is None or new_num < best_num:
+                best_by_date_nights[key] = o
+
+        uniq2 = list(best_by_date_nights.values())
         if not uniq2:
             continue
 
-        # 4) Сортуємо ДАТИ по порядку (хронологічно)
-        uniq2.sort(key=lambda o: _date_sort_key(o.get("date_from")))
+        # 3) сортуємо: дата ↑, ночі ↑
+        def nights_sort(o: Dict[str, Any]) -> int:
+            try:
+                return int(o.get("duration") or o.get("hnight") or 0)
+            except Exception:
+                return 0
 
-        # 5) Головний офер — з найнижчою ціною серед дат
+        uniq2.sort(key=lambda o: (_date_sort_key(o.get("date_from")), nights_sort(o)))
+
+        # 4) головний — найнижча ціна з усіх варіантів
         def price_num(o: Dict[str, Any]) -> float:
             v, _ = _pick_price(o.get("prices") or {}, currency_id)
             return v if v is not None else 10**18
@@ -220,8 +204,10 @@ def offers_to_messages(data: Dict[str, Any], currency_id: int = 2) -> List[Tuple
 
         main_caption, image_url = build_offer_caption(main, currency_id, include_people=True)
 
+        # 5) обмеження: максимум 5 інших варіантів
+        others = others[:5]
+
         if others:
-            # 6) Інші дати списком (вже без дублікатів дат і відсортовані)
             lines = [main_caption, ""]
             for o in others:
                 date_from = _fmt_date(o.get("date_from"))
@@ -236,7 +222,6 @@ def offers_to_messages(data: Dict[str, Any], currency_id: int = 2) -> List[Tuple
 
         messages.append((caption, image_url))
 
-    # 7) Сортуємо готелі за мінімальною ціною та беремо топ-10
     def msg_min_price_num(msg: Tuple[str, Optional[str]]) -> float:
         cap = msg[0]
         for line in cap.splitlines():
