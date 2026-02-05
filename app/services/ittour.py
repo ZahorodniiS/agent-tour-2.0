@@ -2,20 +2,30 @@ from datetime import datetime, timedelta
 from urllib.parse import urlencode
 import logging
 import requests
-from typing import Optional, Tuple, Dict, Any, Union
+from typing import Optional, Tuple, Dict, Any
 
 from app.config import ITTOUR_API_TOKEN, ACCEPT_LANGUAGE
 
 
 CURRENCY_MAP = {
-    'uah': 2, 'грн': 2, 'гривня': 2, 'гривні': 2,
-    'usd': 1, 'дол': 1, 'долар': 1, 'долари': 1, 'доларів': 1, '$': 1,
-    'eur': 10, 'євро': 10, '€': 10,
+    "uah": 2,
+    "грн": 2,
+    "гривня": 2,
+    "гривні": 2,
+    "usd": 1,
+    "дол": 1,
+    "долар": 1,
+    "долари": 1,
+    "доларів": 1,
+    "$": 1,
+    "eur": 10,
+    "євро": 10,
+    "€": 10,
 }
 
 
 def fmt_dmy(d: datetime) -> str:
-    return d.strftime('%d.%m.%y')
+    return d.strftime("%d.%m.%y")
 
 
 def _normalize_ittour_response(data: Any) -> Dict[str, Any]:
@@ -34,12 +44,27 @@ def _normalize_ittour_response(data: Any) -> Dict[str, Any]:
         # Частий кейс: [{"error": "...", "error_desc": "...", "error_code": 100}]
         if len(data) == 1 and isinstance(data[0], dict):
             return data[0]
-        return {"error": "Invalid response format", "error_desc": "List response", "error_code": 110, "raw": data}
+        return {
+            "error": "Invalid response format",
+            "error_desc": "List response",
+            "error_code": 110,
+            "raw": data,
+        }
 
     if isinstance(data, str):
-        return {"error": "Invalid response format", "error_desc": data[:500], "error_code": 110, "raw": data}
+        return {
+            "error": "Invalid response format",
+            "error_desc": data[:500],
+            "error_code": 110,
+            "raw": data,
+        }
 
-    return {"error": "Invalid response format", "error_desc": str(type(data)), "error_code": 110, "raw": repr(data)[:1000]}
+    return {
+        "error": "Invalid response format",
+        "error_desc": str(type(data)),
+        "error_code": 110,
+        "raw": repr(data)[:1000],
+    }
 
 
 def _ensure_error_shape(data: Dict[str, Any], *, http_status: int | None = None) -> Dict[str, Any]:
@@ -121,12 +146,12 @@ def build_search_list_query(
     items_per_page = items_per_page or 10
 
     if date_from_str:
-        date_from = datetime.strptime(date_from_str, '%d.%m.%y')
+        date_from = datetime.strptime(date_from_str, "%d.%m.%y")
     else:
         date_from = today + timedelta(days=2)
 
     if date_till_str:
-        date_till = datetime.strptime(date_till_str, '%d.%m.%y')
+        date_till = datetime.strptime(date_till_str, "%d.%m.%y")
     else:
         date_till = date_from + timedelta(days=12)
 
@@ -135,6 +160,7 @@ def build_search_list_query(
 
     if not (1 <= night_from <= 30 and 1 <= night_till <= 30 and night_from <= night_till):
         raise ValueError("Некоректні значення night_from/night_till (1..30, from ≤ till)")
+
     if not (1 <= adults <= 4):
         raise ValueError("adult_amount має бути 1..4")
 
@@ -169,6 +195,7 @@ def build_search_list_query(
 
     if budget_from is not None:
         params["price_from"] = int(budget_from)
+
     if budget_to is not None:
         params["price_till"] = int(budget_to)
 
@@ -192,7 +219,7 @@ def request_search_list(params: Dict[str, Any]) -> Dict[str, Any]:
         "https://api.ittour.com.ua/module/search-list",
         params=params,
         headers=headers,
-        timeout=25
+        timeout=25,
     )
 
     try:
@@ -215,6 +242,11 @@ def request_search_list(params: Dict[str, Any]) -> Dict[str, Any]:
     # якщо є помилка — лог з кодом (щоб легко шукати по журналу)
     if isinstance(data, dict) and ("error" in data or "error_code" in data):
         code = data.get("error_code")
-        logging.error("ITTour API error_code=%s error=%s desc=%s", code, data.get("error"), data.get("error_desc"))
+        logging.error(
+            "ITTour API error_code=%s error=%s desc=%s",
+            code,
+            data.get("error"),
+            data.get("error_desc"),
+        )
 
     return data
