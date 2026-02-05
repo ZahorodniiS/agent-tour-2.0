@@ -2,9 +2,10 @@ from datetime import datetime, timedelta
 from urllib.parse import urlencode
 import logging
 import requests
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Union
 
 from app.config import ITTOUR_API_TOKEN, ACCEPT_LANGUAGE
+
 
 CURRENCY_MAP = {
     'uah': 2, 'грн': 2, 'гривня': 2, 'гривні': 2,
@@ -12,8 +13,79 @@ CURRENCY_MAP = {
     'eur': 10, 'євро': 10, '€': 10,
 }
 
+
 def fmt_dmy(d: datetime) -> str:
     return d.strftime('%d.%m.%y')
+
+
+def _normalize_ittour_response(data: Any) -> Dict[str, Any]:
+    """
+    ITTour інколи повертає:
+      - dict (норма)
+      - list з 1 dict (помилки бувають так)
+      - string (інколи при 401/проксі/edge cases)
+
+    Приводимо все до dict.
+    """
+    if isinstance(data, dict):
+        return data
+
+    if isinstance(data, list):
+        # Частий кейс: [{"error": "...", "error_desc": "...", "error_code": 100}]
+        if len(data) == 1 and isinstance(data[0], dict):
+            return data[0]
+        return {"error": "Invalid response format", "error_desc": "List response", "error_code": 110, "raw": data}
+
+    if isinstance(data, str):
+        return {"error": "Invalid response format", "error_desc": data[:500], "error_code": 110, "raw": data}
+
+    return {"error": "Invalid response format", "error_desc": str(type(data)), "error_code": 110, "raw": repr(data)[:1000]}
+
+
+def _ensure_error_shape(data: Dict[str, Any], *, http_status: int | None = None) -> Dict[str, Any]:
+    """
+    Гарантуємо, що при помилці є:
+      - error
+      - error_desc
+      - error_code (int, якщо можливо)
+    """
+    # якщо вже ок — повертаємо як є
+    if "error" not in data and "error_code" not in data and "code" not in data:
+        return data
+
+    # зчитуємо error_code з різних полів
+    code = data.get("error_code", None)
+    if code is None:
+        code = data.get("code", None)
+    if code is None and isinstance(data.get("error"), dict):
+        code = data["error"].get("code")
+
+    try:
+        code_int = int(code) if code is not None else None
+    except Exception:
+        code_int = None
+
+    # error може бути dict — приводимо до рядка
+    err = data.get("error")
+    if isinstance(err, dict):
+        err = err.get("message") or err.get("title") or str(err)
+
+    desc = data.get("error_desc")
+    if desc is None and isinstance(data.get("error"), dict):
+        desc = data["error"].get("message")
+
+    # якщо ITTour повернув 401/403/… без коду — підставимо 110 "Unknown error"
+    if code_int is None and http_status and http_status != 200:
+        code_int = 110
+
+    # формуємо єдиний формат
+    out = dict(data)
+    out["error"] = err or "API error"
+    out["error_desc"] = desc or ""
+    if code_int is not None:
+        out["error_code"] = code_int
+    return out
+
 
 def build_search_list_query(
     *,
@@ -104,20 +176,45 @@ def build_search_list_query(
     url = f"{base}?{urlencode(params)}"
     return url, params
 
+
 def request_search_list(params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Завжди повертає dict.
+    Якщо ITTour повернув помилку — dict гарантовано має:
+      error, error_desc, error_code
+    """
     headers = {
         "Authorization": f"Bearer {ITTOUR_API_TOKEN}",
         "Accept-Language": ACCEPT_LANGUAGE,
     }
-    resp = requests.get("https://api.ittour.com.ua/module/search-list", params=params, headers=headers, timeout=25)
+
+    resp = requests.get(
+        "https://api.ittour.com.ua/module/search-list",
+        params=params,
+        headers=headers,
+        timeout=25
+    )
+
     try:
-        data = resp.json()
+        data_raw = resp.json()
     except Exception:
         logging.exception("ITTour: invalid JSON response")
-        raise
+        return {
+            "error": "Invalid JSON",
+            "error_desc": f"HTTP {resp.status_code}, cannot decode JSON",
+            "error_code": 110,
+            "raw": (resp.text or "")[:1000],
+        }
+
+    data = _normalize_ittour_response(data_raw)
+    data = _ensure_error_shape(data, http_status=resp.status_code)
 
     if resp.status_code != 200:
         logging.error("ITTour: HTTP %s body=%s", resp.status_code, data)
-    if isinstance(data, dict) and "error" in data:
-        logging.error("ITTour API error: %s", data)
+
+    # якщо є помилка — лог з кодом (щоб легко шукати по журналу)
+    if isinstance(data, dict) and ("error" in data or "error_code" in data):
+        code = data.get("error_code")
+        logging.error("ITTour API error_code=%s error=%s desc=%s", code, data.get("error"), data.get("error_desc"))
+
     return data
