@@ -1,5 +1,3 @@
-# app/render/cards.py
-
 from __future__ import annotations
 from typing import Any, Dict, Tuple, Optional, List, DefaultDict
 from datetime import datetime
