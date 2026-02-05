@@ -35,6 +35,7 @@ _UA_MONTHS = {
     "липень": 7, "серпень": 8, "вересень": 9, "жовтень": 10, "листопад": 11, "грудень": 12,
 }
 
+
 def normalize_date_ddmmyy(date_str: str, now: datetime | None = None) -> str:
     if not date_str:
         raise ValueError("date_str is empty")
@@ -84,6 +85,7 @@ def normalize_date_ddmmyy(date_str: str, now: datetime | None = None) -> str:
 
     raise ValueError(f"Unsupported date format: {date_str}")
 
+
 # ---------------------------
 # Fuzzy matching
 # ---------------------------
@@ -93,6 +95,7 @@ def _norm_text(s: str) -> str:
     s = re.sub(r"[^\wа-яіїєґ'\- ]+", " ", s, flags=re.IGNORECASE)
     s = re.sub(r"\s+", " ", s).strip()
     return s
+
 
 def fuzzy_lookup(name: Optional[str], mapping: dict, cutoff: float = 0.78) -> Optional[int]:
     if not name:
@@ -113,6 +116,7 @@ def fuzzy_lookup(name: Optional[str], mapping: dict, cutoff: float = 0.78) -> Op
         return mapping.get(best_key)
     return None
 
+
 # ---------------------------
 # Helpers
 # ---------------------------
@@ -129,15 +133,18 @@ def city_keyboard() -> InlineKeyboardMarkup:
             btns.append([InlineKeyboardButton(text=name, callback_data=f"from_city:{fid}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
+
 def controls_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Новий пошук", callback_data="search_reset")]
     ])
 
+
 def _set_draft(chat_id: int, **kwargs) -> None:
     current = state_get(chat_id) or {}
     merged = {**current, **kwargs}
     state_set(chat_id, **merged)
+
 
 def _pick(*vals, allow_zero: bool = False):
     for v in vals:
@@ -150,6 +157,7 @@ def _pick(*vals, allow_zero: bool = False):
         return v
     return None
 
+
 def _safe_int(v, default: int) -> int:
     try:
         if v in (None, ""):
@@ -157,6 +165,7 @@ def _safe_int(v, default: int) -> int:
         return int(v)
     except Exception:
         return int(default)
+
 
 def _make_query_hash(st: dict) -> str:
     """
@@ -177,6 +186,7 @@ def _make_query_hash(st: dict) -> str:
         str(DEFAULTS.get("hotel_rating")),
     ])
     return hashlib.md5(key.encode("utf-8")).hexdigest()
+
 
 def _build_summary(st: dict) -> str:
     adults = st.get("adults")
@@ -202,9 +212,13 @@ def _build_summary(st: dict) -> str:
         f"{budget}"
     )
 
+
 async def _ask_missing(message: Message, st: dict) -> bool:
     if not st.get("country_id"):
-        await message.answer("Куди летимо? 🌍 Напишіть країну (наприклад: Єгипет / Туреччина).", reply_markup=controls_keyboard())
+        await message.answer(
+            "Куди летимо? 🌍 Напишіть країну (наприклад: Єгипет / Туреччина).",
+            reply_markup=controls_keyboard(),
+        )
         return True
 
     if not st.get("from_city_id"):
@@ -212,17 +226,18 @@ async def _ask_missing(message: Message, st: dict) -> bool:
         _set_draft(message.chat.id, awaiting_from_city=True)
         return True
 
-    # adults
     if st.get("adults") in (None, ""):
         await message.answer("Скільки дорослих? 👤 (наприклад: 2)", reply_markup=controls_keyboard())
         return True
 
-    # children default
     if st.get("children") in (None, ""):
         _set_draft(message.chat.id, children=0)
 
     if not st.get("date_from"):
-        await message.answer("На яку дату виїзду? 🗓️ (10.12 / 25,4 / 25 квітня / 10.12.2026)", reply_markup=controls_keyboard())
+        await message.answer(
+            "На яку дату виїзду? 🗓️ (10.12 / 25,4 / 25 квітня / 10.12.2026)",
+            reply_markup=controls_keyboard(),
+        )
         return True
 
     if (st.get("budget_from") in (None, "")) and (st.get("budget_to") in (None, "")):
@@ -230,6 +245,7 @@ async def _ask_missing(message: Message, st: dict) -> bool:
         return True
 
     return False
+
 
 def _extract_error_code(data: dict) -> int:
     code = data.get("error_code") or data.get("code")
@@ -241,10 +257,10 @@ def _extract_error_code(data: dict) -> int:
     except Exception:
         return 0
 
+
 async def _run_search(message: Message, st: dict) -> None:
     now = datetime.now()
 
-    # dates normalize
     date_from_raw = st.get("date_from")
     date_till_raw = st.get("date_till")
 
@@ -276,7 +292,10 @@ async def _run_search(message: Message, st: dict) -> None:
     children_i = _safe_int(st.get("children"), int(DEFAULTS.get("child_amount", 0)))
 
     if adults_i < 1 or adults_i > 4:
-        await message.answer("Кількість дорослих має бути 1..4 👤 Напишіть, будь ласка, скільки дорослих.", reply_markup=controls_keyboard())
+        await message.answer(
+            "Кількість дорослих має бути 1..4 👤 Напишіть, будь ласка, скільки дорослих.",
+            reply_markup=controls_keyboard(),
+        )
         return
 
     _set_draft(
@@ -307,7 +326,6 @@ async def _run_search(message: Message, st: dict) -> None:
             budget_from=st.get("budget_from"),
             items_per_page=DEFAULTS["items_per_page"],
         )
-        # ✅ видно запит в логах
         logging.info("ITTour request url=%s params=%s", url, params)
     except Exception as e:
         logging.exception("Помилка формування параметрів")
@@ -351,13 +369,15 @@ async def _run_search(message: Message, st: dict) -> None:
         await message.answer(f"Сталася помилка ITTour ({code_int}). {tip}")
         return
 
-    # ✅ summary перед видачею
     await message.answer(_build_summary(state_get(message.chat.id) or {}), reply_markup=controls_keyboard())
 
     currency_id = int(params.get("currency", config.CURRENCY_DEFAULT))
     offers = offers_to_messages(data, currency_id=currency_id)
     if not offers:
-        await message.answer("За вашими умовами нічого не знайшлося. Спробуємо змінити бюджет/дати/ночі?", reply_markup=controls_keyboard())
+        await message.answer(
+            "За вашими умовами нічого не знайшлося. Спробуємо змінити бюджет/дати/ночі?",
+            reply_markup=controls_keyboard(),
+        )
         return
 
     for caption, image_url in offers:
@@ -376,6 +396,7 @@ async def _run_search(message: Message, st: dict) -> None:
             reply_markup=controls_keyboard(),
         )
 
+
 # ---------------------------
 # Handlers
 # ---------------------------
@@ -392,18 +413,20 @@ async def start(message: Message) -> None:
     ])
     await message.answer(example, reply_markup=kb)
 
+
 @router.callback_query(F.data == "search_reset")
 async def cb_search_reset(cb: CallbackQuery) -> None:
-    # можна зберігати місто вильоту, якщо хочеш:
-    state_reset(cb.message.chat.id, keep=[])  # або keep=["from_city_id"]
+    state_reset(cb.message.chat.id, keep=[])
     await cb.message.answer("Ок 🙂 Почнемо новий пошук. Куди летимо? 🌍")
     await cb.answer()
+
 
 @router.callback_query(F.data == "search_start")
 async def cb_search_start(cb: CallbackQuery) -> None:
     _set_draft(cb.message.chat.id, awaiting_from_city=True)
     await cb.message.answer("Почнемо 🙂 Звідки виліт? ✈️ Оберіть місто:", reply_markup=city_keyboard())
     await cb.answer()
+
 
 @router.callback_query(F.data.startswith("from_city:"))
 async def cb_from_city(cb: CallbackQuery) -> None:
@@ -413,7 +436,6 @@ async def cb_from_city(cb: CallbackQuery) -> None:
         await cb.answer("Некоректні дані міста", show_alert=True)
         return
 
-    # підтягнемо назву міста для summary
     with open(os.path.join(DATA_DIR, "from_city_map.json"), "r", encoding="utf-8") as f:
         city_map = json.load(f)
     from_city_name = None
@@ -432,6 +454,7 @@ async def cb_from_city(cb: CallbackQuery) -> None:
         return
     await _run_search(cb.message, st2)
 
+
 @router.message()
 async def handle_text(message: Message) -> None:
     user_text = (message.text or "").strip()
@@ -445,7 +468,6 @@ async def handle_text(message: Message) -> None:
     llm = llm_extract(user_text, country_map, city_map)
     rb = parse_user_text(user_text)
 
-    # визначимо "що саме користувач оновив" (щоб розуміти new search)
     user_set_any = any([
         rb.get("country_name") or llm.get("country_name") or rb.get("country_id") or llm.get("country_id"),
         rb.get("from_city_name") or llm.get("from_city_name") or rb.get("from_city_id") or llm.get("from_city_id"),
@@ -455,12 +477,28 @@ async def handle_text(message: Message) -> None:
         rb.get("children") is not None or llm.get("children") is not None,
     ])
 
+    # ✅ Правка №1: якщо в тексті є країна — НЕ беремо cached country_id
+    explicit_country = bool(
+        llm.get("country_id")
+        or rb.get("country_id")
+        or llm.get("country_name")
+        or rb.get("country_name")
+    )
+
+    # ✅ (додатково) якщо в тексті є місто — НЕ беремо cached from_city_id
+    explicit_from_city = bool(
+        llm.get("from_city_id")
+        or rb.get("from_city_id")
+        or llm.get("from_city_name")
+        or rb.get("from_city_name")
+    )
+
     country_id = _pick(
         llm.get("country_id"),
         rb.get("country_id"),
         fuzzy_lookup(llm.get("country_name"), country_map),
         fuzzy_lookup(rb.get("country_name"), country_map),
-        cached.get("country_id"),
+        None if explicit_country else cached.get("country_id"),
     )
 
     from_city_id = _pick(
@@ -468,7 +506,7 @@ async def handle_text(message: Message) -> None:
         rb.get("from_city_id"),
         fuzzy_lookup(llm.get("from_city_name"), city_map),
         fuzzy_lookup(rb.get("from_city_name"), city_map),
-        cached.get("from_city_id"),
+        None if explicit_from_city else cached.get("from_city_id"),
     )
 
     adults = _pick(llm.get("adults"), rb.get("adults"), cached.get("adults"), DEFAULTS.get("adult_amount", 2))
@@ -501,14 +539,12 @@ async def handle_text(message: Message) -> None:
             await message.answer("Не можу розпізнати дату 'до' 🗓️ Напишіть: 10.12 / 25,4 / 25 квітня / 10.12.2026")
             return
 
-    # назви для summary (країна)
     country_name = cached.get("country_name")
     if rb.get("country_name"):
         country_name = rb.get("country_name")
     if llm.get("country_name"):
         country_name = llm.get("country_name")
 
-    # оновлюємо state
     _set_draft(
         message.chat.id,
         country_id=country_id,
@@ -527,11 +563,10 @@ async def handle_text(message: Message) -> None:
 
     st = state_get(message.chat.id) or {}
 
-    # ✅ якщо це “новий запит” — скидати контекст (page/query_hash)
     new_hash = _make_query_hash(st)
     old_hash = st.get("query_hash")
     if user_set_any and old_hash and new_hash != old_hash:
-        _set_draft(message.chat.id, page=1)  # під майбутню пагінацію
+        _set_draft(message.chat.id, page=1)
     _set_draft(message.chat.id, query_hash=new_hash)
 
     asked = await _ask_missing(message, st)
